@@ -1,0 +1,81 @@
+variables:
+  REGISTRY_HOST: registry.service.op
+  TEST_IMAGE: $REGISTRY_HOST/$CI_PROJECT_PATH:$CI_BUILD_REF_NAME
+  RELEASE_IMAGE: $REGISTRY_HOST/$CI_PROJECT_PATH:latest
+
+cache:
+  key: "$CI_BUILD_REF_NAME"
+  untracked: true
+  paths:
+    - ./client/dist
+
+stages:
+  - test
+  - build
+  - release
+  - deploy
+
+e2e_test:
+  stage: test
+  image: supersoftware/robotframework
+  variables:
+    ROBOT_OPTIONS: >
+      --variable REMOTE_URL:http://selenium-hub.pipeline:4444/wd/hub
+  script:
+    - robot e2e
+  only:
+    - schedules
+
+api_test:
+  stage: test
+  image: supersoftware/foxx-deploy
+  services: 
+    - arangodb/arangodb:3.2.0
+  variables:
+    ARANGO_NO_AUTH: '1'
+    FOXX_DIR: 'heroes'
+    MOUNT_POINT: '/api'
+    TARGET_ARANGO_ENDPOINT: 'arangodb-arangodb:8529'
+  script:
+    - cd ./api/foxx
+    - sh run_tests.sh
+
+build_spa:
+  stage: build
+  image: node:6.11-alpine
+  script:
+    - cd ./client
+    - yarn
+    - yarn run build
+
+release_docker:
+  stage: release
+  script:
+    - cd ./client
+    - docker info
+    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $REGISTRY_HOST
+    - docker build --pull -t $RELEASE_IMAGE .
+    - docker push $RELEASE_IMAGE
+  only:
+    - master
+
+update_foxx:
+  stage: deploy
+  image: supersoftware/foxx-deploy
+  script:
+    - cd ./api/foxx
+    - zip -r heroes.zip heroes
+    - >
+      curl --fail -X PUT --header 'Content-Type: multipart/form-data' -F 'source=@heroes.zip' 
+      'http://internal.routing:8529/_db/_system/_api/foxx/service?mount=%2Fapi&teardown=true&setup=true&legacy=false'
+  only:
+    - master
+
+
+upgrade_rancher_services:
+  stage: deploy
+  script: >
+      docker run --rm supersoftware/curl --fail -X POST -H 'Content-Type: application/json'
+      -d '{"push_data": {"tag": "latest"}, "repository": {"repo_name": "registry.service.op/example/arango-angular-demo"}}' 
+      'https://try.rancher.com/v1-webhooks/endpoint?key=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+

@@ -1,0 +1,18 @@
+version: '2'
+services:
+  spa:
+    image: abiosoft/caddy
+    ports:
+      - 2015:2015
+    volumes:
+      - ./conf/spa/Caddyfile:/etc/Caddyfile
+      - ./client/dist:/srv
+  api:
+    image: arangodb/arangodb:3.2.0
+    ports:
+      - 8529:8529
+    environment:
+    # Disable authentication. Useful for testing.
+      - ARANGO_NO_AUTH=1
+    volumes:
+      - ./api/foxx:/foxx

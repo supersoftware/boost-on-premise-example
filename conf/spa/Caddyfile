@@ -1,0 +1,2 @@
+0.0.0.0:2015
+proxy /api http://api:8529/_db/_system/
